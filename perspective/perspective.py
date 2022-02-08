@@ -26,13 +26,15 @@ import abc
 import asyncio
 import enum
 import json
-import os
+import logging
 import sys
 import traceback
 import typing as t
 
 import aiohttp
 import attr
+
+from .ratelimiter import RateLimiter
 
 __all__ = [
     "AttributeName",
@@ -46,7 +48,9 @@ __all__ = [
     "Client",
 ]
 
-perspective_url = "https://commentanalyzer.googleapis.com/v1alpha1/comments:analyze?key={api_key}"
+PERSPECTIVE_URL = "https://commentanalyzer.googleapis.com/v1alpha1/comments:analyze?key={api_key}"
+
+_logger = logging.getLogger(__name__)
 
 
 class AttributeName(str, enum.Enum):
@@ -215,44 +219,10 @@ class Client:
         self.api_key: str = api_key
         self.qps: int = qps
         self.do_not_store: bool = do_not_store
-        self._queue: t.List[t.Dict[str, t.Tuple[t.Awaitable[AnalysisResponse], asyncio.Event]]] = []
-        self._values: t.Dict[str, AnalysisResponse] = {}
+
+        self._queue: t.List[asyncio.Event] = []
         self._current_task: t.Optional[asyncio.Task[t.Any]] = None
-
-    async def _iter_queue(self) -> None:
-        """Iterate queue and return values to _values"""
-        try:
-            while len(self._queue) > 0:
-                queue_data: t.Mapping[str, t.Tuple[t.Awaitable[AnalysisResponse], asyncio.Event]] = self._queue.pop(0)
-                key: str = list(queue_data.keys())[0]
-                data: t.Tuple[t.Awaitable[AnalysisResponse], asyncio.Event] = queue_data[key]
-
-                coro: t.Awaitable[AnalysisResponse] = data[0]
-                event: asyncio.Event = data[1]
-
-                resp = await coro
-                self._values[key] = resp
-
-                event.set()
-                await asyncio.sleep(1 / self.qps)
-            self._current_task = None
-
-        except Exception as e:
-            print(f"Ignoring error in perspective._iter_queue: {e}", file=sys.stderr)
-            print(traceback.format_exc(), file=sys.stderr)
-
-    async def _execute_ratelimited(self, coro: t.Awaitable[AnalysisResponse]) -> AnalysisResponse:
-        """Execute a function with the ratelimits in mind."""
-        key = os.urandom(16).hex()  # Identifies value in _values
-        event = asyncio.Event()
-
-        self._queue.append({key: (coro, event)})
-
-        if self._current_task is None:
-            self._current_task = asyncio.create_task(self._iter_queue())
-
-        await event.wait()
-        return self._values.pop(key)
+        self._rate_limiter = RateLimiter(60, 60 * qps)
 
     async def analyze(
         self,
@@ -266,9 +236,12 @@ class Client:
         lang = [languages] if isinstance(languages, str) else languages
         attrib = [requested_attributes] if isinstance(requested_attributes, Attribute) else requested_attributes
 
-        return await self._execute_ratelimited(
-            self._make_request(text, lang, attrib, session_id=session_id, client_token=client_token)
-        )
+        await self._rate_limiter.acquire()
+
+        resp = await self._make_request(text, lang, attrib, session_id=session_id, client_token=client_token)
+        if resp is not None:
+            return resp
+        raise RuntimeError("Did not receive response from API due to breaking ratelimits.")
 
     async def _make_request(
         self,
@@ -278,7 +251,7 @@ class Client:
         *,
         session_id: t.Optional[str] = None,
         client_token: t.Optional[str] = None,
-    ) -> AnalysisResponse:
+    ) -> t.Optional[AnalysisResponse]:
         # TODO: Reuse session
         async with aiohttp.ClientSession() as session:
 
@@ -298,11 +271,20 @@ class Client:
                 "clientToken": client_token,
             }
 
-            url = perspective_url.format(api_key=self.api_key)
+            url = PERSPECTIVE_URL.format(api_key=self.api_key)
 
             async with session.post(url, json=payload) as resp:
                 if resp.status == 200:
                     return AnalysisResponse.from_dict(await resp.json())
-                raise ConnectionError(
-                    f"Connection to Perspective API failed:\nResponse code: {resp.status}\n\n{json.dumps(await resp.json(), indent=4)}"
-                )
+
+                elif resp.status == 429:
+                    _logger.warning(
+                        f"Getting ratelimited, waiting for {self._rate_limiter.period} seconds. Please ensure your QPS is configured correctly."
+                    )
+                    self._rate_limiter.block()
+                    return None
+
+                else:
+                    raise ConnectionError(
+                        f"Connection to Perspective API failed:\nResponse code: {resp.status}\n\n{json.dumps(await resp.json(), indent=4)}"
+                    )
