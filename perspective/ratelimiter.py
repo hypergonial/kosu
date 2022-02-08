@@ -23,9 +23,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import sys
 import time
+import traceback
 import typing as t
 from collections import deque
+
+_logger = logging.getLogger(__name__)
 
 
 class RateLimiter:
@@ -82,17 +87,24 @@ class RateLimiter:
         await event.wait()
 
     async def _iter_queue(self) -> None:
-        if not self._queue:
+        try:
+            if not self._queue:
+                self._task = None
+                return
+
+            if self.is_rate_limited:
+                # Sleep until ratelimit expires
+                sleep_time = self._reset_at - time.monotonic()
+                _logger.warning(f"Ratelimited, waiting {round(sleep_time)} seconds.")
+                await asyncio.sleep(sleep_time)
+
+            # Set events while not ratelimited
+            while not self.is_rate_limited and self._queue:
+                self._remaining -= 1
+                self._queue.popleft().set()
+
             self._task = None
-            return
 
-        if self.is_rate_limited:
-            # Sleep until ratelimit expires
-            await asyncio.sleep(self._reset_at - time.monotonic())
-
-        # Set events while not ratelimited
-        while not self.is_rate_limited and self._queue:
-            self._remaining -= 1
-            self._queue.popleft().set()
-
-        self._task = None
+        except Exception as e:
+            print(f"Task Exception was never retrieved: {e}", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
