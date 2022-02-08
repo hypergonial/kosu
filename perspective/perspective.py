@@ -29,19 +29,14 @@ import json
 import os
 import sys
 import traceback
-from typing import Any
-from typing import Coroutine
-from typing import Dict
-from typing import List
-from typing import Mapping
-from typing import Optional
-from typing import Tuple
-from typing import Union
+import typing as t
+from dataclasses import dataclass
 
 import aiohttp
+import attr
 
 __all__ = [
-    "AttributeType",
+    "AttributeName",
     "ScoreType",
     "Attribute",
     "AnalysisResponse",
@@ -52,8 +47,10 @@ __all__ = [
     "Client",
 ]
 
+perspective_url = "https://commentanalyzer.googleapis.com/v1alpha1/comments:analyze?key={api_key}"
 
-class AttributeType(enum.Enum):
+
+class AttributeName(str, enum.Enum):
     """An enum of possible comment attributes."""
 
     # Stable Attributes
@@ -84,97 +81,127 @@ class AttributeType(enum.Enum):
     UNSUBSTANTIAL = "UNSUBSTANTIAL"
 
 
-class ScoreType(enum.Enum):
+class ScoreType(str, enum.Enum):
     """An enum that contains alls possible score types."""
 
-    NONE = "NONE"
     SPAN = "SPAN"
     SUMMARY = "SUMMARY"
 
 
+@attr.define()
 class Attribute:
     """Represents a Perspective Attribute that can be requested."""
 
-    def __init__(
-        self,
-        name: Union[AttributeType, str],
-        *,
-        score_type: str = "PROBABILITY",
-        score_threshold: Optional[float] = None,
-    ) -> None:
-        self.name = AttributeType(name)
-        self.score_type: str = str(score_type)
-        self.score_threshold: Optional[float] = float(score_threshold) if score_threshold else None
+    name: t.Union[AttributeName, str] = attr.field()
+    score_type: str = attr.field(default="PROBABILITY")
+    score_threshold: t.Optional[float] = attr.field(default=None)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> t.Dict[str, t.Any]:
         """Convert this attribute to a dict before sending it to the API."""
-        payload = {self.name.value: {"scoreType": self.score_type, "scoreThreshold": self.score_threshold}}
+        payload = {str(self.name): {"scoreType": self.score_type, "scoreThreshold": self.score_threshold}}
         return payload
 
 
+@attr.frozen(weakref_slot=False)
 class AnalysisResponse:
     """Represents an Analysis Response received through the API."""
 
-    def __init__(self, response: Dict[str, Any]) -> None:
-        self.response: Dict[str, Any] = response
+    response: t.Dict[str, t.Any] = attr.field()
+    languages: t.List[str] = attr.field()
+    detected_languages: t.List[str] = attr.field()
+    client_token: t.Optional[str] = attr.field()
+    attribute_scores: t.List[AttributeScore] = attr.field()
 
-        self.languages: List[str] = self.response["languages"]
+    @classmethod
+    def from_dict(cls, resp: t.Dict[str, t.Any]) -> AnalysisResponse:
+        scores = []
 
-        self.detected_languages: Optional[List[str]] = (
-            self.response["detected_languages"] if "detected_languages" in self.response.keys() else None
+        for name, data in resp["attributeScores"].items():
+            scores.append(AttributeScore.from_data(name, data))
+
+        return cls(
+            response=resp,
+            languages=resp["languages"],
+            detected_languages=resp["detected_languages"] if "detected_languages" in resp.keys() else None,
+            client_token=resp["clientToken"] if "clientToken" in resp.keys() else None,
+            attribute_scores=scores,
         )
 
-        self.client_token: str = self.response["clientToken"] if "clientToken" in self.response.keys() else None
 
-        self.attribute_scores: List[AttributeScore] = []
-
-        for name, data in self.response["attributeScores"].items():
-            self.attribute_scores.append(AttributeScore(name, data))
-
-
+@attr.frozen(weakref_slot=False)
 class AttributeScore:
-    """Represents an AttributeScore received through the API."""
 
-    def __init__(self, name: str, score_data: Dict[str, Any]) -> None:
-        self.name: AttributeType = AttributeType(name)
-        self.span: List[SpanScore] = []
-        for score_type, data in score_data.items():
+    name: AttributeName = attr.field()
+    summary: SummaryScore = attr.field()
+    span: t.List[SpanScore] = attr.field()
+
+    @classmethod
+    def from_data(cls, name: str, data: t.Dict[str, t.Any]) -> AttributeScore:
+        span_scores = []
+
+        for score_type, data in data.items():
 
             if score_type == "spanScores":
                 for span_data in data:
-                    self.span.append(SpanScore(span_data))
+                    span_scores.append(SpanScore.from_data(span_data))
 
             elif score_type == "summaryScore":
-                self.summary: SummaryScore = SummaryScore(data)
+                summary_score: SummaryScore = SummaryScore.from_data(data)
+
+        return cls(
+            name=AttributeName(name),
+            span=span_scores,
+            summary=summary_score,
+        )
 
 
 class Score(abc.ABC):
     """Generic base class for scores."""
 
-    def __init__(self) -> None:
-        self.score_type: ScoreType = ScoreType.NONE
+    @property
+    @abc.abstractmethod
+    def score_type(self) -> ScoreType:
+        """The ScoreType of this object."""
+        ...
 
 
+@attr.frozen(weakref_slot=False)
 class SummaryScore(Score):
     """Represents a summary score rating for an AttributeScore."""
 
-    def __init__(self, score_data: Dict[str, Any]) -> None:
-        super().__init__()
-        self.score_type: ScoreType = ScoreType.SUMMARY
-        self.value: float = score_data["value"]
-        self.type: str = score_data["type"]
+    value: float = attr.field()
+    type: str = attr.field()
+
+    @property
+    def score_type(self) -> ScoreType:
+        return ScoreType.SUMMARY
+
+    @classmethod
+    def from_data(cls, data: t.Dict[str, t.Any]) -> SummaryScore:
+        return cls(value=data["value"], type=data["type"])
 
 
+@attr.frozen(weakref_slot=False)
 class SpanScore(Score):
-    """Represents a span score rating for an AttributeScore."""
+    """Represents a summary score rating for an AttributeScore."""
 
-    def __init__(self, score_data: Dict[str, Any]) -> None:
-        super().__init__()
-        self.score_type: ScoreType = ScoreType.SPAN
-        self.value: float = score_data["score"]["value"]
-        self.type: str = score_data["score"]["type"]
-        self.begin: Optional[int] = score_data["begin"] if "begin" in score_data.keys() else None
-        self.end: Optional[int] = score_data["end"] if "end" in score_data.keys() else None
+    value: float = attr.field()
+    type: str = attr.field()
+    begin: t.Optional[int] = attr.field()
+    end: t.Optional[int] = attr.field()
+
+    @property
+    def score_type(self) -> ScoreType:
+        return ScoreType.SPAN
+
+    @classmethod
+    def from_data(cls, data: t.Dict[str, t.Any]) -> SpanScore:
+        return cls(
+            value=data["value"],
+            type=data["type"],
+            begin=data["begin"] if "begin" in data.keys() else None,
+            end=data["end"] if "end" in data.keys() else None,
+        )
 
 
 class Client:
@@ -198,21 +225,19 @@ class Client:
         self.api_key: str = api_key
         self.qps: int = qps
         self.do_not_store: bool = do_not_store
-        self._queue: List[Dict[str, Tuple[Coroutine[Any, Any, AnalysisResponse], asyncio.Event]]] = []
-        self._values: Dict[str, AnalysisResponse] = {}
-        self._current_task: Optional[asyncio.Task[Any]] = None
+        self._queue: t.List[t.Dict[str, t.Tuple[t.Awaitable[AnalysisResponse], asyncio.Event]]] = []
+        self._values: t.Dict[str, AnalysisResponse] = {}
+        self._current_task: t.Optional[asyncio.Task[t.Any]] = None
 
     async def _iter_queue(self) -> None:
         """Iterate queue and return values to _values"""
         try:
             while len(self._queue) > 0:
-                queue_data: Mapping[str, Tuple[Coroutine[Any, Any, AnalysisResponse], asyncio.Event]] = self._queue.pop(
-                    0
-                )
+                queue_data: t.Mapping[str, t.Tuple[t.Awaitable[AnalysisResponse], asyncio.Event]] = self._queue.pop(0)
                 key: str = list(queue_data.keys())[0]
-                data: Tuple[Coroutine[Any, Any, AnalysisResponse], asyncio.Event] = queue_data[key]
+                data: t.Tuple[t.Awaitable[AnalysisResponse], asyncio.Event] = queue_data[key]
 
-                coro: Coroutine[Any, Any, AnalysisResponse] = data[0]
+                coro: t.Awaitable[AnalysisResponse] = data[0]
                 event: asyncio.Event = data[1]
 
                 resp = await coro
@@ -224,9 +249,9 @@ class Client:
 
         except Exception as e:
             print(f"Ignoring error in perspective._iter_queue: {e}", file=sys.stderr)
-            print(traceback.format_exc())
+            print(traceback.format_exc(), file=sys.stderr)
 
-    async def _execute_ratelimited(self, coro: Coroutine[Any, Any, AnalysisResponse]) -> AnalysisResponse:
+    async def _execute_ratelimited(self, coro: t.Awaitable[AnalysisResponse]) -> AnalysisResponse:
         """Execute a function with the ratelimits in mind."""
         key = os.urandom(16).hex()  # Identifies value in _values
         event = asyncio.Event()
@@ -242,11 +267,11 @@ class Client:
     async def analyze(
         self,
         text: str,
-        languages: Union[List[str], str],
-        requested_attributes: Union[List[Attribute], Attribute],
+        languages: t.Union[t.List[str], str],
+        requested_attributes: t.Union[t.List[Attribute], Attribute],
         *,
-        session_id: Optional[str] = None,
-        client_token: Optional[str] = None,
+        session_id: t.Optional[str] = None,
+        client_token: t.Optional[str] = None,
     ) -> AnalysisResponse:
         lang = [languages] if isinstance(languages, str) else languages
         attrib = [requested_attributes] if isinstance(requested_attributes, Attribute) else requested_attributes
@@ -258,11 +283,11 @@ class Client:
     async def _make_request(
         self,
         text: str,
-        languages: List[str],
-        requested_attributes: List[Attribute],
+        languages: t.List[str],
+        requested_attributes: t.List[Attribute],
         *,
-        session_id: Optional[str] = None,
-        client_token: Optional[str] = None,
+        session_id: t.Optional[str] = None,
+        client_token: t.Optional[str] = None,
     ) -> AnalysisResponse:
         # TODO: Reuse session
         async with aiohttp.ClientSession() as session:
@@ -282,10 +307,12 @@ class Client:
                 "sessionId": session_id,
                 "clientToken": client_token,
             }
-            url = f"https://commentanalyzer.googleapis.com/v1alpha1/comments:analyze?key={self.api_key}"
+
+            url = perspective_url.format(api_key=self.api_key)
+
             async with session.post(url, json=payload) as resp:
                 if resp.status == 200:
-                    return AnalysisResponse(await resp.json())
+                    return AnalysisResponse.from_dict(await resp.json())
                 raise ConnectionError(
                     f"Connection to Perspective API failed:\nResponse code: {resp.status}\n\n{json.dumps(await resp.json(), indent=4)}"
                 )
