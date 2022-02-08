@@ -30,7 +30,6 @@ import os
 import sys
 import traceback
 import typing as t
-from dataclasses import dataclass
 
 import aiohttp
 import attr
@@ -92,9 +91,9 @@ class ScoreType(str, enum.Enum):
 class Attribute:
     """Represents a Perspective Attribute that can be requested."""
 
-    name: t.Union[AttributeName, str] = attr.field()
-    score_type: str = attr.field(default="PROBABILITY")
-    score_threshold: t.Optional[float] = attr.field(default=None)
+    name: t.Union[AttributeName, str]
+    score_type: str = "PROBABILITY"
+    score_threshold: t.Optional[float] = None
 
     def to_dict(self) -> t.Dict[str, t.Any]:
         """Convert this attribute to a dict before sending it to the API."""
@@ -106,11 +105,11 @@ class Attribute:
 class AnalysisResponse:
     """Represents an Analysis Response received through the API."""
 
-    response: t.Dict[str, t.Any] = attr.field()
-    languages: t.List[str] = attr.field()
-    detected_languages: t.List[str] = attr.field()
-    client_token: t.Optional[str] = attr.field()
-    attribute_scores: t.List[AttributeScore] = attr.field()
+    response: t.Dict[str, t.Any]
+    languages: t.List[str]
+    detected_languages: t.List[str]
+    attribute_scores: t.List[AttributeScore]
+    client_token: t.Optional[str] = None
 
     @classmethod
     def from_dict(cls, resp: t.Dict[str, t.Any]) -> AnalysisResponse:
@@ -118,12 +117,11 @@ class AnalysisResponse:
 
         for name, data in resp["attributeScores"].items():
             scores.append(AttributeScore.from_data(name, data))
-
         return cls(
             response=resp,
             languages=resp["languages"],
-            detected_languages=resp["detected_languages"] if "detected_languages" in resp.keys() else None,
-            client_token=resp["clientToken"] if "clientToken" in resp.keys() else None,
+            detected_languages=resp.get("detected_languages", []),
+            client_token=resp.get("clientToken", None),
             attribute_scores=scores,
         )
 
@@ -131,27 +129,19 @@ class AnalysisResponse:
 @attr.frozen(weakref_slot=False)
 class AttributeScore:
 
-    name: AttributeName = attr.field()
-    summary: SummaryScore = attr.field()
-    span: t.List[SpanScore] = attr.field()
+    name: AttributeName
+    summary: SummaryScore
+    span: t.List[SpanScore] = []
 
     @classmethod
     def from_data(cls, name: str, data: t.Dict[str, t.Any]) -> AttributeScore:
-        span_scores = []
-
-        for score_type, data in data.items():
-
-            if score_type == "spanScores":
-                for span_data in data:
-                    span_scores.append(SpanScore.from_data(span_data))
-
-            elif score_type == "summaryScore":
-                summary_score: SummaryScore = SummaryScore.from_data(data)
+        if raw_span := data.get("spanScores"):
+            span = [SpanScore.from_data(data) for data in raw_span]
 
         return cls(
             name=AttributeName(name),
-            span=span_scores,
-            summary=summary_score,
+            span=span,
+            summary=SummaryScore.from_data(data["summaryScore"]),
         )
 
 
@@ -169,8 +159,8 @@ class Score(abc.ABC):
 class SummaryScore(Score):
     """Represents a summary score rating for an AttributeScore."""
 
-    value: float = attr.field()
-    type: str = attr.field()
+    value: float
+    type: str
 
     @property
     def score_type(self) -> ScoreType:
@@ -185,10 +175,10 @@ class SummaryScore(Score):
 class SpanScore(Score):
     """Represents a summary score rating for an AttributeScore."""
 
-    value: float = attr.field()
-    type: str = attr.field()
-    begin: t.Optional[int] = attr.field()
-    end: t.Optional[int] = attr.field()
+    value: float
+    type: str
+    begin: t.Optional[int] = None
+    end: t.Optional[int] = None
 
     @property
     def score_type(self) -> ScoreType:
