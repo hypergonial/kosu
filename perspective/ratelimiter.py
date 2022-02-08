@@ -82,14 +82,17 @@ class RateLimiter:
         await event.wait()
 
     async def _iter_queue(self) -> None:
-        if self._queue:
-            if self.is_rate_limited:
-                # Sleep until ratelimit expires
-                await asyncio.sleep(self._reset_at - time.monotonic())
+        if not self._queue:
+            self._task = None
+            return
 
-            # Set events while not ratelimited
-            while not self.is_rate_limited and self._queue:
-                self._remaining -= 1
-                self._queue.popleft().set()
+        if self.is_rate_limited:
+            # Sleep until ratelimit expires
+            await asyncio.sleep(self._reset_at - time.monotonic())
+
+        # Set events while not ratelimited
+        while not self.is_rate_limited and self._queue:
+            self._remaining -= 1
+            self._queue.popleft().set()
 
         self._task = None

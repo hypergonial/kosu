@@ -206,8 +206,8 @@ class Client:
     api_key : str
         The API key provided by Perspective.
     qps : int
-        The maximum allowed amount of requests per second
-        set in the Google Cloud Console. Defaults to 1.
+        The maximum allowed amount of requests per second.
+        Defaults to 1.
     do_not_store : bool
         If True, sends a doNotStore request with the payload.
         This should be used when handling confidential data,
@@ -223,68 +223,87 @@ class Client:
         self._queue: t.List[asyncio.Event] = []
         self._current_task: t.Optional[asyncio.Task[t.Any]] = None
         self._rate_limiter = RateLimiter(60, 60 * qps)
+        self._session: t.Optional[aiohttp.ClientSession] = None
+
+    @property
+    def session(self) -> aiohttp.ClientSession:
+        """The currently running aiohttp session."""
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
+        return self._session
 
     async def analyze(
         self,
         text: str,
-        languages: t.Union[t.List[str], str],
-        requested_attributes: t.Union[t.List[Attribute], Attribute],
+        languages: t.Union[t.Sequence[str], str],
+        requested_attributes: t.Union[t.Sequence[Attribute], Attribute],
         *,
         session_id: t.Optional[str] = None,
         client_token: t.Optional[str] = None,
     ) -> AnalysisResponse:
-        lang = [languages] if isinstance(languages, str) else languages
-        attrib = [requested_attributes] if isinstance(requested_attributes, Attribute) else requested_attributes
 
-        await self._rate_limiter.acquire()
+        payload = self._prepare_payload(
+            text, languages, requested_attributes, session_id=session_id, client_token=client_token
+        )
 
-        resp = await self._make_request(text, lang, attrib, session_id=session_id, client_token=client_token)
+        resp = await self._make_request("POST", payload)
         if resp is not None:
-            return resp
+            return AnalysisResponse.from_dict(resp)
         raise RuntimeError("Did not receive response from API due to breaking ratelimits.")
 
-    async def _make_request(
+    def _prepare_payload(
         self,
         text: str,
-        languages: t.List[str],
-        requested_attributes: t.List[Attribute],
+        languages: t.Union[t.Sequence[str], str],
+        requested_attributes: t.Union[t.Sequence[Attribute], Attribute],
         *,
         session_id: t.Optional[str] = None,
         client_token: t.Optional[str] = None,
-    ) -> t.Optional[AnalysisResponse]:
-        # TODO: Reuse session
-        async with aiohttp.ClientSession() as session:
+    ) -> t.Dict[str, t.Any]:
 
-            attributes = {}
-            for attribute in requested_attributes:
-                attributes.update(attribute.to_dict())
+        languages = [languages] if isinstance(languages, str) else languages
+        requested_attributes = (
+            [requested_attributes] if isinstance(requested_attributes, Attribute) else requested_attributes
+        )
 
-            payload = {
-                "comment": {
-                    "text": text,
-                    "type": "PLAIN_TEXT",
-                },
-                "languages": languages,
-                "requestedAttributes": attributes,
-                "doNotStore": self.do_not_store,
-                "sessionId": session_id,
-                "clientToken": client_token,
-            }
+        attributes = {}
+        for attribute in requested_attributes:
+            attributes.update(attribute.to_dict())
 
-            url = PERSPECTIVE_URL.format(api_key=self.api_key)
+        payload = {
+            "comment": {
+                "text": text,
+                "type": "PLAIN_TEXT",
+            },
+            "languages": languages,
+            "requestedAttributes": attributes,
+            "doNotStore": self.do_not_store,
+            "sessionId": session_id,
+            "clientToken": client_token,
+        }
+        return payload
 
-            async with session.post(url, json=payload) as resp:
-                if resp.status == 200:
-                    return AnalysisResponse.from_dict(await resp.json())
+    async def _make_request(
+        self, method: str, payload: t.Dict[str, t.Any], ignore_ratelimits: bool = False
+    ) -> t.Optional[t.Dict[str, t.Any]]:
 
-                elif resp.status == 429:
-                    _logger.warning(
-                        f"Getting ratelimited, waiting for {self._rate_limiter.period} seconds. Please ensure your QPS is configured correctly."
-                    )
+        if not ignore_ratelimits:
+            await self._rate_limiter.acquire()
+
+        async with self.session.request(method, PERSPECTIVE_URL.format(api_key=self.api_key), json=payload) as resp:
+            if resp.status == 200:
+                data: t.Dict[str, t.Any] = await resp.json()  # Appease mypy
+                return data
+
+            elif resp.status == 429:
+                _logger.warning(
+                    f"Getting ratelimited, waiting for {self._rate_limiter.period} seconds. Please ensure your QPS is configured correctly."
+                )
+                if not ignore_ratelimits:
                     self._rate_limiter.block()
-                    return None
+                return None
 
-                else:
-                    raise ConnectionError(
-                        f"Connection to Perspective API failed:\nResponse code: {resp.status}\n\n{json.dumps(await resp.json(), indent=4)}"
-                    )
+            else:
+                raise ConnectionError(
+                    f"Connection to Perspective API failed:\nResponse code: {resp.status}\n\n{json.dumps(await resp.json(), indent=4)}"
+                )
