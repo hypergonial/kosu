@@ -27,8 +27,6 @@ import asyncio
 import enum
 import json
 import logging
-import sys
-import traceback
 import typing as t
 
 import aiohttp
@@ -112,7 +110,8 @@ class Attribute:
 
     def to_dict(self) -> t.Dict[str, t.Any]:
         """Convert this attribute to a dict before sending it to the API."""
-        payload = {str(self.name): {"scoreType": self.score_type, "scoreThreshold": self.score_threshold}}
+        name = self.name.value if isinstance(self.name, AttributeName) else self.name
+        payload = {name: {"scoreType": self.score_type, "scoreThreshold": self.score_threshold}}
         return payload
 
 
@@ -202,8 +201,8 @@ class SpanScore(Score):
     @classmethod
     def from_data(cls, data: t.Dict[str, t.Any]) -> SpanScore:
         return cls(
-            value=data["value"],
-            type=data["type"],
+            value=data["score"]["value"],
+            type=data["score"]["type"],
             begin=data["begin"] if "begin" in data.keys() else None,
             end=data["end"] if "end" in data.keys() else None,
         )
