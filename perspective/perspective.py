@@ -53,6 +53,17 @@ PERSPECTIVE_URL = "https://commentanalyzer.googleapis.com/v1alpha1/comments:anal
 _logger = logging.getLogger(__name__)
 
 
+class PerspectiveException(Exception):
+    """Base class for all perspective exceptions."""
+
+
+class PerspectiveQuotaExceeded(PerspectiveException):
+    """
+    Raised when receiveing a 429 response from the API.
+    This should generally not happen if ratelimiter is on and properly configured.
+    """
+
+
 class AttributeName(str, enum.Enum):
     """An enum of possible comment attributes."""
 
@@ -247,9 +258,7 @@ class Client:
         )
 
         resp = await self._make_request("POST", payload)
-        if resp is not None:
-            return AnalysisResponse.from_dict(resp)
-        raise RuntimeError("Did not receive response from API due to breaking ratelimits.")
+        return AnalysisResponse.from_dict(resp)
 
     def _prepare_payload(
         self,
@@ -285,7 +294,7 @@ class Client:
 
     async def _make_request(
         self, method: str, payload: t.Dict[str, t.Any], ignore_ratelimits: bool = False
-    ) -> t.Optional[t.Dict[str, t.Any]]:
+    ) -> t.Dict[str, t.Any]:
 
         if not ignore_ratelimits:
             await self._rate_limiter.acquire()
@@ -296,14 +305,16 @@ class Client:
                 return data
 
             elif resp.status == 429:
-                _logger.warning(
-                    f"Getting ratelimited, waiting for {self._rate_limiter.period} seconds. Please ensure your QPS is configured correctly."
+                _logger.error(
+                    f"Ratelimited, sleeping for {self._rate_limiter.period} seconds. Please ensure your QPS is configured correctly."
                 )
                 if not ignore_ratelimits:
                     self._rate_limiter.block()
-                return None
+                raise PerspectiveQuotaExceeded(
+                    f"Perspective API Quota exceeded.\nResponse code: {resp.status}\n\n{json.dumps(await resp.json(), indent=4)}"
+                )
 
             else:
-                raise ConnectionError(
+                raise PerspectiveException(
                     f"Connection to Perspective API failed:\nResponse code: {resp.status}\n\n{json.dumps(await resp.json(), indent=4)}"
                 )
