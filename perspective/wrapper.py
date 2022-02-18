@@ -245,15 +245,15 @@ class Client:
     async def analyze(
         self,
         text: str,
-        languages: t.Union[t.Sequence[str], str],
         requested_attributes: t.Union[t.Sequence[Attribute], Attribute],
+        languages: t.Optional[t.Union[t.Sequence[str], str]] = None,
         *,
         session_id: t.Optional[str] = None,
         client_token: t.Optional[str] = None,
     ) -> AnalysisResponse:
 
         payload = self._prepare_payload(
-            text, languages, requested_attributes, session_id=session_id, client_token=client_token
+            text, requested_attributes, languages, session_id=session_id, client_token=client_token
         )
 
         resp = await self._make_request("POST", payload)
@@ -262,8 +262,8 @@ class Client:
     def _prepare_payload(
         self,
         text: str,
-        languages: t.Union[t.Sequence[str], str],
         requested_attributes: t.Union[t.Sequence[Attribute], Attribute],
+        languages: t.Optional[t.Union[t.Sequence[str], str]] = None,
         *,
         session_id: t.Optional[str] = None,
         client_token: t.Optional[str] = None,
@@ -283,12 +283,14 @@ class Client:
                 "text": text,
                 "type": "PLAIN_TEXT",
             },
-            "languages": languages,
             "requestedAttributes": attributes,
             "doNotStore": self.do_not_store,
             "sessionId": session_id,
             "clientToken": client_token,
         }
+        if languages:
+            payload["languages"] = languages
+
         return payload
 
     async def _make_request(
