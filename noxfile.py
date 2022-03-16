@@ -25,7 +25,7 @@ import os
 import nox
 from nox import options
 
-PATH_TO_PROJECT = os.path.join(".", "perspective")
+PATH_TO_PROJECT = os.path.join(".", "kosu")
 SCRIPT_PATHS = [
     PATH_TO_PROJECT,
     "noxfile.py",

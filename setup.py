@@ -27,7 +27,7 @@ import types
 from setuptools import find_namespace_packages
 from setuptools import setup
 
-name = "perspective"
+name = "kosu"
 
 
 def parse_meta():
@@ -59,16 +59,16 @@ def parse_requirements_file(path):
 meta = parse_meta()
 
 setup(
-    name="perspective.py",
+    name="kosu",
     version=meta.version,
     description="Asynchronous API wrapper for the Perspective API.",
     long_description=long_description(),
     long_description_content_type="text/markdown",
     author="HyperGH",
     author_email="46067571+HyperGH@users.noreply.github.com",
-    url="https://github.com/HyperGH/hikari-miru",
+    url="https://github.com/HyperGH/kosu",
     packages=find_namespace_packages(include=[name + "*"]),
-    package_data={"perspective": ["py.typed"]},
+    package_data={"kosu": ["py.typed"]},
     license="MIT",
     include_package_data=True,
     zip_safe=False,

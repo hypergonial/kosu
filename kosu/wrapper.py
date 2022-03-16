@@ -52,7 +52,7 @@ _logger = logging.getLogger(__name__)
 
 
 class PerspectiveException(Exception):
-    """Base class for all perspective exceptions."""
+    """Base class for all kosu exceptions."""
 
 
 class PerspectiveQuotaExceeded(PerspectiveException):
