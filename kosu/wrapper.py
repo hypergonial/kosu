@@ -44,6 +44,8 @@ __all__ = [
     "SummaryScore",
     "SpanScore",
     "Client",
+    "PerspectiveException",
+    "PerspectiveQuotaExceeded",
 ]
 
 PERSPECTIVE_URL = "https://commentanalyzer.googleapis.com/v1alpha1/comments:analyze?key={api_key}"
