@@ -144,7 +144,6 @@ class AnalysisResponse:
 
 @attr.frozen(weakref_slot=False)
 class AttributeScore:
-
     name: AttributeName
     summary: SummaryScore
     span: t.List[SpanScore] = []
@@ -228,7 +227,6 @@ class Client:
     """
 
     def __init__(self, api_key: str, qps: float = 1.0, do_not_store: bool = False) -> None:
-
         self.api_key: str = api_key
         self.qps: float = qps
         self.do_not_store: bool = do_not_store
@@ -296,7 +294,6 @@ class Client:
         session_id: t.Optional[str] = None,
         client_token: t.Optional[str] = None,
     ) -> t.Dict[str, t.Any]:
-
         languages = [languages] if isinstance(languages, str) else languages
         requested_attributes = (
             [requested_attributes] if isinstance(requested_attributes, Attribute) else requested_attributes
@@ -324,7 +321,6 @@ class Client:
     async def _make_request(
         self, method: str, payload: t.Dict[str, t.Any], ignore_ratelimits: bool = False
     ) -> t.Dict[str, t.Any]:
-
         if not ignore_ratelimits:
             await self._rate_limiter.acquire()
 
