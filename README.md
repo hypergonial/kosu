@@ -20,16 +20,21 @@ attribs = [
     kosu.Attribute(kosu.AttributeName.INSULT),
 ]
 
+
 async def main() -> None:
-    client = kosu.Client("API_KEY")
-    resp: kosu.AnalysisResponse = await client.analyze("Shut up, you're an idiot!", attribs, languages=["en"])
+    client = kosu.Client("AIzaSyACns6TDjKBilALPCgOwRxzTnYF-VXBqVc")
+    resp: kosu.AnalysisResponse = await client.analyze(
+        "Shut up, you're an idiot!", attribs, languages=["en"]
+    )
 
     for score in resp.attribute_scores:
         print(score)
-    
+
     await client.close()
 
+
 asyncio.run(main())
+
 ```
 
 Outputs:
