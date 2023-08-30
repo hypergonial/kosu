@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2022-present HyperGH
+# Copyright (c) 2022-present hypergonial
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -151,6 +151,7 @@ class AttributeScore:
 
     @classmethod
     def from_data(cls, name: str, data: t.Dict[str, t.Any]) -> AttributeScore:
+        span = []
         if raw_span := data.get("spanScores"):
             span = [SpanScore.from_data(data) for data in raw_span]
 
@@ -217,7 +218,7 @@ class Client:
     ----------
     api_key : str
         The API key provided by Perspective.
-    qps : int
+    qps : float
         The maximum allowed amount of requests per second.
         Defaults to 1.
     do_not_store : bool
@@ -226,23 +227,16 @@ class Client:
         or data of persons under the age of 13.
     """
 
-    def __init__(self, api_key: str, qps: int = 1, do_not_store: bool = False) -> None:
+    def __init__(self, api_key: str, qps: float = 1.0, do_not_store: bool = False) -> None:
 
         self.api_key: str = api_key
-        self.qps: int = qps
+        self.qps: float = qps
         self.do_not_store: bool = do_not_store
 
         self._queue: t.List[asyncio.Event] = []
         self._current_task: t.Optional[asyncio.Task[t.Any]] = None
-        self._rate_limiter = RateLimiter(60, 60 * qps)
-        self._session: t.Optional[aiohttp.ClientSession] = None
-
-    @property
-    def session(self) -> aiohttp.ClientSession:
-        """The currently running aiohttp session."""
-        if self._session is None:
-            self._session = aiohttp.ClientSession()
-        return self._session
+        self._rate_limiter = RateLimiter(60, int(60.0 * qps))
+        self._session: aiohttp.ClientSession = aiohttp.ClientSession()
 
     async def analyze(
         self,
@@ -253,6 +247,34 @@ class Client:
         session_id: t.Optional[str] = None,
         client_token: t.Optional[str] = None,
     ) -> AnalysisResponse:
+        """Analyze a comment.
+
+        Parameters
+        ----------
+        text : str
+            The text to analyze.
+        requested_attributes : t.Union[t.Sequence[Attribute], Attribute]
+            The attributes to scan for.
+        languages : t.Optional[t.Union[t.Sequence[str], str]], optional
+            The languages to scan for, by default None
+        session_id : t.Optional[str], optional
+            The session_id, if any, by default None
+        client_token : t.Optional[str], optional
+            The client token to be used for procedures, if any, by default None
+
+        Returns
+        -------
+        AnalysisResponse
+            The parsed response from the API.
+
+        Raises
+        ------
+        PerspectiveQuotaExceeded
+            Raised when the API returns a 429 response.
+            This should not happen if the ratelimiter is properly configured.
+        PerspectiveException
+            Raised when the API returns a non-200 response.
+        """
 
         payload = self._prepare_payload(
             text, requested_attributes, languages, session_id=session_id, client_token=client_token
@@ -260,6 +282,10 @@ class Client:
 
         resp = await self._make_request("POST", payload)
         return AnalysisResponse.from_dict(resp)
+
+    async def close(self) -> None:
+        """Close the underlying aiohttp session."""
+        await self._session.close()
 
     def _prepare_payload(
         self,
@@ -302,9 +328,9 @@ class Client:
         if not ignore_ratelimits:
             await self._rate_limiter.acquire()
 
-        async with self.session.request(method, PERSPECTIVE_URL.format(api_key=self.api_key), json=payload) as resp:
+        async with self._session.request(method, PERSPECTIVE_URL.format(api_key=self.api_key), json=payload) as resp:
             if resp.status == 200:
-                data: t.Dict[str, t.Any] = await resp.json()  # Appease mypy
+                data: t.Dict[str, t.Any] = await resp.json()
                 return data
 
             elif resp.status == 429:

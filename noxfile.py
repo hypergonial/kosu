@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2022-present HyperGH
+# Copyright (c) 2022-present hypergonial
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -36,22 +36,21 @@ options.sessions = ["format_fix", "mypy"]  # "sphinx"]
 
 
 @nox.session()
-def format_fix(session: nox.Session):
+def format_fix(session: nox.Session) -> None:
     session.install("black")
     session.install("isort")
     session.run("python", "-m", "black", *SCRIPT_PATHS)
     session.run("python", "-m", "isort", *SCRIPT_PATHS)
 
 
-# noinspection PyShadowingBuiltins
 @nox.session()
-def format(session: nox.Session):
+def format(session: nox.Session) -> None:
     session.install("-U", "black")
     session.run("python", "-m", "black", *SCRIPT_PATHS, "--check")
 
 
 @nox.session()
-def mypy(session: nox.Session):
+def mypy(session: nox.Session) -> None:
     session.install("-Ur", "requirements.txt")
     session.install("-U", "mypy")
     session.run("python", "-m", "mypy", PATH_TO_PROJECT)

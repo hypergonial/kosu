@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2022-present HyperGH
+# Copyright (c) 2022-present hypergonial
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -22,4 +22,4 @@
 
 from .wrapper import *
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"

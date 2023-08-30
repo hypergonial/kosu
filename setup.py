@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2022-present HyperGH
+# Copyright (c) 2022-present hypergonial
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -23,6 +23,7 @@
 import os
 import re
 import types
+import typing as t
 
 from setuptools import find_namespace_packages
 from setuptools import setup
@@ -30,7 +31,7 @@ from setuptools import setup
 name = "kosu"
 
 
-def parse_meta():
+def parse_meta() -> types.SimpleNamespace:
     with open(os.path.join(name, "__init__.py")) as fp:
         code = fp.read()
 
@@ -45,12 +46,12 @@ def parse_meta():
     return types.SimpleNamespace(**groups)
 
 
-def long_description():
+def long_description() -> str:
     with open("README.md") as fp:
         return fp.read()
 
 
-def parse_requirements_file(path):
+def parse_requirements_file(path: str) -> t.List[str]:
     with open(path) as fp:
         dependencies = (d.strip() for d in fp.read().split("\n") if d.strip())
         return [d for d in dependencies if not d.startswith("#")]
@@ -64,9 +65,9 @@ setup(
     description="Asynchronous API wrapper for the Perspective API.",
     long_description=long_description(),
     long_description_content_type="text/markdown",
-    author="HyperGH",
-    author_email="46067571+HyperGH@users.noreply.github.com",
-    url="https://github.com/HyperGH/kosu",
+    author="hypergonial",
+    author_email="46067571+hypergonial@users.noreply.github.com",
+    url="https://github.com/hypergonial/kosu",
     packages=find_namespace_packages(include=[name + "*"]),
     package_data={"kosu": ["py.typed"]},
     license="MIT",
