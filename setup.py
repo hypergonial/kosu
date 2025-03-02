@@ -74,7 +74,7 @@ setup(
     include_package_data=True,
     zip_safe=False,
     install_requires=parse_requirements_file("requirements.txt"),
-    python_requires=">=3.8.0,<3.13",
+    python_requires=">=3.8.0,<3.14",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Framework :: AsyncIO",
